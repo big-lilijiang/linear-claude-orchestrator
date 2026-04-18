@@ -74,6 +74,7 @@ class TaskRunner:
     ) -> TaskRunReport:
         repo_root = Path(repo_root).resolve()
         manager = GitWorktreeManager(repo_root, remote_name=self.project.remote_name)
+        branch_existed = manager.local_branch_exists(task.repository.working_branch)
         worktree_path = repo_root / self.profile.worktree_root / self._slug(f"{task.task_id}-{task.repository.working_branch}")
         worktree = manager.prepare(
             target_branch=task.repository.target_branch,
@@ -142,6 +143,8 @@ class TaskRunner:
         finally:
             if cleanup:
                 manager.remove(worktree.path, force=True, missing_ok=True)
+                if dry_run and not branch_existed:
+                    manager.delete_branch(task.repository.working_branch, force=True, missing_ok=True)
                 cleanup_performed = True
             if report is not None:
                 report.cleanup_performed = cleanup_performed

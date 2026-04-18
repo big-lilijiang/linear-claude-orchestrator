@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+import subprocess
 
 from damon_autocoding.models import (
     CommitStrategy,
@@ -103,10 +104,16 @@ class TaskRunnerTests(unittest.TestCase):
             self.assertEqual(report.test_results[0].exit_code, 0)
             self.assertEqual(report.delivery.api_payload["source_branch"], "damon/dry-run-task")
             self.assertFalse(Path(report.worktree_path).exists())
+            branch_check = subprocess.run(
+                ["git", "show-ref", "--verify", "--quiet", "refs/heads/damon/dry-run-task"],
+                cwd=repo_root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(branch_check.returncode, 0)
 
     def _init_repo(self, repo_root: Path) -> None:
-        import subprocess
-
         subprocess.run(["git", "init", "-b", "main"], cwd=repo_root, text=True, capture_output=True, check=True)
         subprocess.run(["git", "config", "user.name", "Tester"], cwd=repo_root, text=True, capture_output=True, check=True)
         subprocess.run(["git", "config", "user.email", "tester@example.com"], cwd=repo_root, text=True, capture_output=True, check=True)

@@ -135,6 +135,17 @@ class GitWorktreeManager:
         completed = self._run_git(["status", "--porcelain"], cwd=worktree_path)
         return bool(completed.stdout.strip())
 
+    def local_branch_exists(self, branch_name: str) -> bool:
+        return self._ref_exists(f"refs/heads/{branch_name}")
+
+    def delete_branch(self, branch_name: str, *, force: bool = False, missing_ok: bool = False) -> None:
+        if missing_ok and not self.local_branch_exists(branch_name):
+            return
+        args = ["branch", "-D" if force else "-d", branch_name]
+        completed = self._run_git(args, cwd=self.repo_root, check=False)
+        if completed.returncode != 0 and not missing_ok:
+            raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or f"failed to delete branch {branch_name}")
+
     def commit_all(self, worktree_path: str | Path, *, message: str) -> str:
         self._run_git(["add", "-A"], cwd=worktree_path)
         self._run_git(["commit", "-m", message], cwd=worktree_path)
