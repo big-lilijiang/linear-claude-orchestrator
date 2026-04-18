@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 
-from .config import load_policy, load_project, load_runtime_state, load_task
+from .config import load_policy, load_project, load_repository_profile, load_runtime_state, load_task
 from .gitlab import GitLabDelivery, MergeRequestSpec
 from .orchestrator import ControlPlane
+from .task_runner import TaskRunner, dump_task_run_report
 from .workers import CodexCLIWorker, dump_worker_result
 
 
@@ -17,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--policy", required=True, help="Path to execution policy YAML.")
     validate_parser.add_argument("--task", required=True, help="Path to task contract YAML.")
     validate_parser.add_argument("--project", help="Optional path to project YAML.")
+    validate_parser.add_argument("--profile", help="Optional path to repository profile YAML.")
 
     simulate_parser = subparsers.add_parser("simulate", help="Simulate the next control-plane decision.")
     simulate_parser.add_argument("--policy", required=True, help="Path to execution policy YAML.")
@@ -43,6 +45,19 @@ def build_parser() -> argparse.ArgumentParser:
     review_worker.add_argument("--base", required=True, help="Base branch for review.")
     review_worker.add_argument("--timeout-seconds", type=int, help="Optional timeout override for codex review.")
 
+    run_task = subparsers.add_parser("run-task", help="Execute the main task orchestration flow.")
+    run_task.add_argument("--policy", required=True, help="Path to execution policy YAML.")
+    run_task.add_argument("--project", required=True, help="Path to project YAML.")
+    run_task.add_argument("--profile", required=True, help="Path to repository profile YAML.")
+    run_task.add_argument("--task", required=True, help="Path to task contract YAML.")
+    run_task.add_argument("--repo-root", default=".", help="Repository root to operate on.")
+    run_task.add_argument("--dry-run", action="store_true", help="Prepare worktree and run checks without invoking Codex or push.")
+    run_task.add_argument("--push", action="store_true", help="Push the task branch and create a merge request when the run succeeds.")
+    run_task.add_argument("--cleanup", action="store_true", help="Remove the worktree after the run finishes.")
+    run_task.add_argument("--reset-worktree", action="store_true", help="Replace an existing worktree at the task path.")
+    run_task.add_argument("--worker-timeout-seconds", type=int, help="Optional timeout override for codex exec.")
+    run_task.add_argument("--review-timeout-seconds", type=int, help="Optional timeout override for codex review.")
+
     return parser
 
 
@@ -55,6 +70,8 @@ def main() -> int:
         load_task(args.task)
         if args.project:
             load_project(args.project)
+        if args.profile:
+            load_repository_profile(args.profile)
         print("Validation OK")
         return 0
 
@@ -106,6 +123,24 @@ def main() -> int:
             timeout_seconds=args.timeout_seconds,
         )
         print(dump_worker_result(result))
+        return 0
+
+    if args.command == "run-task":
+        policy = load_policy(args.policy)
+        project = load_project(args.project)
+        profile = load_repository_profile(args.profile)
+        task = load_task(args.task)
+        report = TaskRunner(project=project, policy=policy, profile=profile).run(
+            task,
+            repo_root=args.repo_root,
+            dry_run=args.dry_run,
+            push=args.push,
+            cleanup=args.cleanup,
+            reset_worktree=args.reset_worktree,
+            worker_timeout_seconds=args.worker_timeout_seconds,
+            review_timeout_seconds=args.review_timeout_seconds,
+        )
+        print(dump_task_run_report(report))
         return 0
 
     parser.error(f"Unknown command: {args.command}")

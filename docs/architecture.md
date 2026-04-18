@@ -70,7 +70,10 @@ V1 的交付优先顺序如下：
 
 - `execution_policy` 规定何时自动推进，何时升级。
 - `task_contract` 规定 worker 收到任务时必须有哪些上下文。
+- `repository_profile` 规定这个仓库该怎么跑 setup / lint / test / static analysis，以及 worktree 放在哪里。
 - `runtime_state` 记录当前阶段、失败次数、验证状态和 blocker 原因。
+
+其中 `task_contract.repository.base_ref` 是一个重要补充字段：它允许任务明确声明“从哪个本地或远端 ref 起分支”，从而避免仓库还没合回 `main` 时，自测或串行任务错误地从远端默认分支启动。
 
 ## Non-Goals For V1
 
@@ -89,3 +92,14 @@ V1 的交付优先顺序如下：
 2. 提供一个最小状态机，验证系统是否能在“不问人”的前提下继续推进。
 3. 为后续接入 Agents SDK / Codex worker 预留明确接口。
 4. 明确 GitLab MR 作为默认交付物，而不是聊天文本作为交付物。
+
+## V1.5 Execution Path
+
+当前代码库已经具备一条最小主链：
+
+1. 根据 `task_contract` 和 `repository_profile` 创建隔离 worktree。
+2. 在 worktree 中执行仓库级检查命令。
+3. 在非 dry-run 模式下调用本机 `codex exec`。
+4. 渲染 GitLab Merge Request 交付命令；可选地直接 push 创建 MR。
+
+这条主链仍然是单 worker、单任务模式，但它已经把“从配置到执行再到交付”的路径固化下来了。

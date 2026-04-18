@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+.damon/
 .venv/
 dist/
 build/

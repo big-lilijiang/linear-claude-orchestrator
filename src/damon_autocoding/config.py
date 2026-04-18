@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from .models import ExecutionPolicy, TaskRuntimeState, WorkerTask
 from .project import ProjectConfig
+from .repo_profile import RepositoryProfile
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -40,3 +41,7 @@ def load_runtime_state(path: str | Path) -> TaskRuntimeState:
 
 def load_project(path: str | Path) -> ProjectConfig:
     return load_model(path, ProjectConfig)
+
+
+def load_repository_profile(path: str | Path) -> RepositoryProfile:
+    return load_model(path, RepositoryProfile)

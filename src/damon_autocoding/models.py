@@ -136,6 +136,7 @@ class ExecutionPolicy(BaseModel):
 class RepositoryContext(BaseModel):
     path: Path
     default_branch: str = "main"
+    base_ref: str | None = None
     working_branch: str
     target_branch: str = "main"
 
@@ -143,6 +144,8 @@ class RepositoryContext(BaseModel):
     def validate_branches(self) -> "RepositoryContext":
         if self.working_branch == self.target_branch:
             raise ValueError("working_branch must differ from target_branch")
+        if self.base_ref is not None and not self.base_ref.strip():
+            raise ValueError("base_ref must not be empty when provided")
         return self
 
 

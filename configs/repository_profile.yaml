@@ -1,0 +1,21 @@
+version: "0.1"
+worktree_root: .damon/worktrees
+run_review: false
+commit_changes: true
+commit_message_template: "{task_id}: {title}"
+
+setup_commands: []
+
+lint_commands:
+  - name: compileall
+    command: python3 -m compileall src tests
+    required: true
+    timeout_seconds: 300
+
+test_commands:
+  - name: unit-tests
+    command: PYTHONPATH=src python3 -m unittest discover -s tests -v
+    required: true
+    timeout_seconds: 300
+
+static_analysis_commands: []

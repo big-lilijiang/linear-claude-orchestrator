@@ -1,0 +1,61 @@
+version: "0.1"
+task_id: TASK-SELF-TEST
+title: Validate task runner orchestration
+objective: Prove that the control plane can create an isolated worktree, run repository checks, and render delivery output.
+
+repository:
+  path: .
+  default_branch: main
+  base_ref: damon/bootstrap-control-plane
+  working_branch: damon/self-test-task-runner
+  target_branch: main
+
+acceptance_criteria:
+  - The runner creates an isolated git worktree for the task branch.
+  - Repository lint and test commands complete successfully in that worktree.
+  - The runner produces a delivery plan for a GitLab merge request.
+
+constraints:
+  allowed_paths:
+    - src/**
+    - tests/**
+    - docs/**
+    - configs/**
+    - README.md
+  forbidden_paths:
+    - infra/**
+  max_changed_files: 20
+
+inputs:
+  architecture_refs:
+    - docs/architecture.md
+  policy_ref: configs/execution_policy.yaml
+  related_issues: []
+
+plan:
+  parent_goal: Validate autonomous repository execution primitives.
+  depends_on: []
+  estimated_complexity: small
+  owning_agent: implementer
+  worker_type: codex
+
+deliverables:
+  code_changes_required: false
+  tests_required: true
+  docs_required: false
+  expected_outputs:
+    - execution_report
+    - delivery_plan
+
+handoff:
+  must_produce:
+    - execution_report
+    - delivery_plan
+  reviewer: reviewer
+  merge_request_template: default
+
+escalation_rules:
+  stop_if:
+    - missing_required_secret
+  notify_if:
+    - test_runtime_exceeds_budget
