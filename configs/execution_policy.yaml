@@ -1,0 +1,47 @@
+version: "0.1"
+autonomy_mode: plan_then_execute
+allow_silent_replans: true
+
+planning:
+  require_architecture: true
+  require_constraints: true
+  require_definition_of_done: true
+  require_execution_policy: true
+
+escalation:
+  blocker_categories:
+    - missing_credentials
+    - missing_required_runtime
+    - unresolved_requirement_conflict
+    - destructive_operation_outside_policy
+  retry_budget_per_stage: 3
+  consecutive_failure_limit: 2
+  max_unattended_cycles: 12
+
+delivery:
+  git:
+    branch_prefix: damon/
+    commit_strategy: checkpoint
+    push_after_green: true
+  gitlab:
+    open_merge_request: true
+    draft_by_default: true
+    labels:
+      - damon
+      - auto-generated
+
+verification:
+  require_unit_tests: true
+  require_lint: true
+  require_static_analysis: false
+  require_ci_green: true
+  reviewer_agent_required: true
+
+execution:
+  allow_parallel_workers: true
+  max_parallel_workers: 3
+  isolated_workspace: git_worktree
+  default_timeout_minutes: 45
+  codex:
+    approval_mode: never
+    sandbox_mode: workspace-write

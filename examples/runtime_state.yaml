@@ -1,0 +1,13 @@
+stage: planning
+stage_retry_count: 0
+consecutive_failures: 0
+implementation_complete: false
+review_passed: false
+tests_passed: false
+lint_passed: false
+static_analysis_passed: false
+ci_green: false
+merge_request_opened: false
+destructive_operation_requested: false
+blocker_reason:
+notes: Planning inputs are available, next step should be repository analysis.
