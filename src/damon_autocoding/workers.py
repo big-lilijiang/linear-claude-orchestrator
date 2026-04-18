@@ -19,6 +19,14 @@ class WorkerRunResult:
     final_message: str | None
 
 
+def _coerce_process_stream(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 def render_task_prompt(task: WorkerTask, policy: ExecutionPolicy) -> str:
     acceptance = "\n".join(f"- {item}" for item in task.acceptance_criteria)
     allowed_paths = "\n".join(f"- {item}" for item in task.constraints.allowed_paths) or "- None"
@@ -65,8 +73,16 @@ Instructions:
 class CodexCLIWorker:
     def __init__(self, policy: ExecutionPolicy) -> None:
         self.policy = policy
+        self.default_timeout_seconds = self.policy.execution.default_timeout_minutes * 60
 
-    def run(self, task: WorkerTask, *, workdir: str, output_path: str | None = None) -> WorkerRunResult:
+    def run(
+        self,
+        task: WorkerTask,
+        *,
+        workdir: str,
+        output_path: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> WorkerRunResult:
         prompt = render_task_prompt(task, self.policy)
         if output_path:
             final_message_path = Path(output_path)
@@ -85,25 +101,54 @@ class CodexCLIWorker:
             str(final_message_path),
             prompt,
         ]
-        completed = subprocess.run(command, text=True, capture_output=True, check=False)
+        try:
+            completed = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=timeout_seconds or self.default_timeout_seconds,
+            )
+            exit_code = completed.returncode
+            stdout = completed.stdout
+            stderr = completed.stderr
+        except subprocess.TimeoutExpired as exc:
+            exit_code = 124
+            stdout = _coerce_process_stream(exc.stdout)
+            stderr = _coerce_process_stream(exc.stderr) + "\nCodex worker timed out."
         final_message = final_message_path.read_text(encoding="utf-8").strip() if final_message_path.exists() else None
         return WorkerRunResult(
             command=command,
-            exit_code=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
             final_message=final_message,
         )
 
-    def review(self, *, workdir: str, base_branch: str) -> WorkerRunResult:
+    def review(self, *, workdir: str, base_branch: str, timeout_seconds: int | None = None) -> WorkerRunResult:
         command = ["codex", "review", "--base", base_branch]
-        completed = subprocess.run(command, cwd=workdir, text=True, capture_output=True, check=False)
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=workdir,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=timeout_seconds or self.default_timeout_seconds,
+            )
+            exit_code = completed.returncode
+            stdout = completed.stdout
+            stderr = completed.stderr
+        except subprocess.TimeoutExpired as exc:
+            exit_code = 124
+            stdout = _coerce_process_stream(exc.stdout)
+            stderr = _coerce_process_stream(exc.stderr) + "\nCodex review timed out."
         return WorkerRunResult(
             command=command,
-            exit_code=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
-            final_message=completed.stdout.strip() or None,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            final_message=stdout.strip() or None,
         )
 
 

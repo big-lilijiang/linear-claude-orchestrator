@@ -35,11 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_worker.add_argument("--task", required=True, help="Path to task contract YAML.")
     run_worker.add_argument("--workdir", required=True, help="Repository working directory.")
     run_worker.add_argument("--output", help="Optional path for the final message output file.")
+    run_worker.add_argument("--timeout-seconds", type=int, help="Optional timeout override for codex exec.")
 
     review_worker = subparsers.add_parser("review-worker", help="Run codex review on the current repository.")
     review_worker.add_argument("--policy", required=True, help="Path to execution policy YAML.")
     review_worker.add_argument("--workdir", required=True, help="Repository working directory.")
     review_worker.add_argument("--base", required=True, help="Base branch for review.")
+    review_worker.add_argument("--timeout-seconds", type=int, help="Optional timeout override for codex review.")
 
     return parser
 
@@ -87,13 +89,22 @@ def main() -> int:
     if args.command == "run-worker":
         policy = load_policy(args.policy)
         task = load_task(args.task)
-        result = CodexCLIWorker(policy).run(task, workdir=args.workdir, output_path=args.output)
+        result = CodexCLIWorker(policy).run(
+            task,
+            workdir=args.workdir,
+            output_path=args.output,
+            timeout_seconds=args.timeout_seconds,
+        )
         print(dump_worker_result(result))
         return 0
 
     if args.command == "review-worker":
         policy = load_policy(args.policy)
-        result = CodexCLIWorker(policy).review(workdir=args.workdir, base_branch=args.base)
+        result = CodexCLIWorker(policy).review(
+            workdir=args.workdir,
+            base_branch=args.base,
+            timeout_seconds=args.timeout_seconds,
+        )
         print(dump_worker_result(result))
         return 0
 
