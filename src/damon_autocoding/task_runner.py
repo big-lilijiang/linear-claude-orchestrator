@@ -71,6 +71,7 @@ class TaskRunner:
         reset_worktree: bool = False,
         worker_timeout_seconds: int | None = None,
         review_timeout_seconds: int | None = None,
+        worker_session_id: str | None = None,
     ) -> TaskRunReport:
         repo_root = Path(repo_root).resolve()
         manager = GitWorktreeManager(repo_root, remote_name=self.project.remote_name)
@@ -91,7 +92,13 @@ class TaskRunner:
             task_for_run.repository.path = worktree.path
 
             setup_results = self._run_command_group(self.profile.setup_commands, cwd=worktree.path)
-            worker_result = self._run_worker(task_for_run, worktree=worktree, dry_run=dry_run, timeout_seconds=worker_timeout_seconds)
+            worker_result = self._run_worker(
+                task_for_run,
+                worktree=worktree,
+                dry_run=dry_run,
+                timeout_seconds=worker_timeout_seconds,
+                session_id=worker_session_id,
+            )
             lint_results = self._run_lint_commands(cwd=worktree.path)
             test_results = self._run_test_commands(task_for_run, cwd=worktree.path)
             static_analysis_results = self._run_static_analysis_commands(cwd=worktree.path)
@@ -168,10 +175,16 @@ class TaskRunner:
         worktree: WorktreeContext,
         dry_run: bool,
         timeout_seconds: int | None,
+        session_id: str | None,
     ) -> WorkerRunResult | None:
         if dry_run or not task.deliverables.code_changes_required:
             return None
-        return self.worker.run(task, workdir=str(worktree.path), timeout_seconds=timeout_seconds)
+        return self.worker.run(
+            task,
+            workdir=str(worktree.path),
+            timeout_seconds=timeout_seconds,
+            session_id=session_id,
+        )
 
     def _run_review(
         self,

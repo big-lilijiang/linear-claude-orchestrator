@@ -4,7 +4,62 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from damon_autocoding.planner import DossierDraft, PlannerTurn
 from damon_autocoding.runs import PlannerIO, RunManager, RunStatus, StartFlow, execute_run
+
+
+class FakePlanner:
+    def next_turn(self, *, repo_root, goal, scan_summary, transcript, language_hint):
+        user_turns = [message for message in transcript if message.role == "user"]
+        if len(user_turns) == 1:
+            return PlannerTurn(
+                language="en",
+                repo_summary="The repository is a small Python project with tests.",
+                repo_risks=["None for the fake planner."],
+                candidate_features=[],
+                recommendation="Build the runner UX first.",
+                questions=["Should Damon optimize for UX polish or deeper automation in this run?"],
+                ready_for_dossier=False,
+                reply_to_user="I recommend focusing on the planning UX first. What should this run optimize for?",
+            )
+        return PlannerTurn(
+            language="en",
+            repo_summary="The repository is a small Python project with tests.",
+            repo_risks=[],
+            candidate_features=[],
+            recommendation="Build the runner UX first.",
+            questions=[],
+            ready_for_dossier=True,
+            reply_to_user="I have enough information to draft the dossier.",
+        )
+
+    def build_dossier(self, *, repo_root, goal, scan_summary, transcript, language_hint):
+        return DossierDraft(
+            language="en",
+            title="Planner driven task runner",
+            goal=goal,
+            scope_items=["Improve the planning UX.", "Preserve the current execution chain."],
+            non_goals=["No unrelated refactors."],
+            architecture_notes=["Route planning through a Codex-backed planner module."],
+            allowed_paths=["src/**", "tests/**", "README.md"],
+            forbidden_paths=[],
+            constraints=["Keep the top-level CLI simple."],
+            definition_of_done=["Lint passes.", "Tests pass.", "The CLI can create a dossier."],
+            lint_commands=["python3 -m compileall src tests"],
+            test_commands=["PYTHONPATH=src python3 -m unittest discover -s tests -v"],
+            static_analysis_commands=[],
+            target_branch="main",
+            base_ref="main",
+            working_branch="damon/planner-driven-task-runner",
+            run_review=False,
+            auto_push_complete_pr=True,
+            auto_push_blocked_pr=True,
+            draft_merge_request=True,
+            summary_for_user="The dossier is ready. It will improve planning UX while keeping execution intact.",
+            goal_markdown="# Goal\n\nImprove the planning UX.",
+            architecture_markdown="# Architecture\n\nUse a Codex-backed planner.",
+            repo_scan_markdown="# Repo Scan\n\nSmall Python repo with tests.",
+        )
 
 
 class RunFlowTests(unittest.TestCase):
@@ -12,10 +67,10 @@ class RunFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._init_repo(repo_root)
-            stdin = io.StringIO("\n" * 17 + "\n\n")
+            stdin = io.StringIO("Optimize for UX polish.\n\n\n")
             stdout = io.StringIO()
 
-            manifest, paths = StartFlow().run(
+            manifest, paths = StartFlow(planner=FakePlanner()).run(
                 repo_root=repo_root,
                 goal="Implement a planner-driven task runner",
                 io=PlannerIO(stdin=stdin, stdout=stdout),
@@ -26,16 +81,17 @@ class RunFlowTests(unittest.TestCase):
             self.assertTrue(paths.project_path.exists())
             self.assertTrue(paths.profile_path.exists())
             self.assertTrue(paths.task_path.exists())
-            self.assertIn("Repository Scan", stdout.getvalue())
+            self.assertIn("planning UX", stdout.getvalue())
+            self.assertGreaterEqual(len(manifest.planning_transcript), 3)
 
     def test_execute_run_dry_run_uses_latest_dossier(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             self._init_repo(repo_root)
-            stdin = io.StringIO("\n" * 17 + "\n\n")
+            stdin = io.StringIO("Optimize for UX polish.\n\n\n")
             stdout = io.StringIO()
 
-            manifest, _ = StartFlow().run(
+            manifest, _ = StartFlow(planner=FakePlanner()).run(
                 repo_root=repo_root,
                 goal="Implement a planner-driven task runner",
                 io=PlannerIO(stdin=stdin, stdout=stdout),

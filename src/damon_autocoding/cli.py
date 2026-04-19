@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import load_policy, load_project, load_repository_profile, load_runtime_state, load_task
 from .gitlab import GitLabDelivery, MergeRequestSpec
 from .orchestrator import ControlPlane
+from .planner import localized
 from .runs import PlannerIO, RunManager, StartFlow, create_blocked_pr, create_complete_pr, execute_run
 from .task_runner import TaskRunner, dump_task_run_report
 from .workers import CodexCLIWorker, dump_worker_result
@@ -257,6 +258,11 @@ def main() -> int:
 
     if args.command == "execute":
         run_id = resolve_run_id(repo=args.repo, run=args.run, latest=args.latest)
+        try:
+            manifest = RunManager(args.repo).load_manifest(run_id)
+            print(localized(manifest.language, "codex_executing"))
+        except Exception:
+            pass
         manifest, payload = execute_run(
             repo_root=args.repo,
             run_id=run_id,

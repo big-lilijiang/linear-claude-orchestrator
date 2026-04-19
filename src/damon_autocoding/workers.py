@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
@@ -17,6 +18,7 @@ class WorkerRunResult:
     stdout: str
     stderr: str
     final_message: str | None
+    session_id: str | None = None
 
 
 def _coerce_process_stream(value: str | bytes | None) -> str:
@@ -82,6 +84,7 @@ class CodexCLIWorker:
         workdir: str,
         output_path: str | None = None,
         timeout_seconds: int | None = None,
+        session_id: str | None = None,
     ) -> WorkerRunResult:
         prompt = render_task_prompt(task, self.policy)
         if output_path:
@@ -90,23 +93,19 @@ class CodexCLIWorker:
             fd, path = tempfile.mkstemp(prefix="damon-codex-", suffix=".txt")
             os.close(fd)
             final_message_path = Path(path)
-        command = [
-            "codex",
-            "exec",
-            "--cd",
-            workdir,
-            "--sandbox",
-            self.policy.execution.codex.sandbox_mode,
-            "-o",
-            str(final_message_path),
-            prompt,
-        ]
+        command = self._build_exec_command(
+            workdir=workdir,
+            final_message_path=final_message_path,
+            prompt=prompt,
+            session_id=session_id,
+        )
         try:
             completed = subprocess.run(
                 command,
                 text=True,
                 capture_output=True,
                 check=False,
+                stdin=subprocess.DEVNULL,
                 timeout=timeout_seconds or self.default_timeout_seconds,
             )
             exit_code = completed.returncode
@@ -123,6 +122,7 @@ class CodexCLIWorker:
             stdout=stdout,
             stderr=stderr,
             final_message=final_message,
+            session_id=self._extract_session_id(stderr) if stderr else None,
         )
 
     def review(self, *, workdir: str, base_branch: str, timeout_seconds: int | None = None) -> WorkerRunResult:
@@ -134,6 +134,7 @@ class CodexCLIWorker:
                 text=True,
                 capture_output=True,
                 check=False,
+                stdin=subprocess.DEVNULL,
                 timeout=timeout_seconds or self.default_timeout_seconds,
             )
             exit_code = completed.returncode
@@ -149,7 +150,44 @@ class CodexCLIWorker:
             stdout=stdout,
             stderr=stderr,
             final_message=stdout.strip() or None,
+            session_id=self._extract_session_id(stderr) if stderr else None,
         )
+
+    def _build_exec_command(
+        self,
+        *,
+        workdir: str,
+        final_message_path: Path,
+        prompt: str,
+        session_id: str | None,
+    ) -> list[str]:
+        if session_id:
+            return [
+                "codex",
+                "exec",
+                "resume",
+                session_id,
+                "-o",
+                str(final_message_path),
+                prompt,
+            ]
+        return [
+            "codex",
+            "exec",
+            "--cd",
+            workdir,
+            "--sandbox",
+            self.policy.execution.codex.sandbox_mode,
+            "-o",
+            str(final_message_path),
+            prompt,
+        ]
+
+    def _extract_session_id(self, stderr: str) -> str | None:
+        match = re.search(r"session id:\s*([0-9a-f-]+)", stderr, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
 
 
 def dump_worker_result(result: WorkerRunResult) -> str:

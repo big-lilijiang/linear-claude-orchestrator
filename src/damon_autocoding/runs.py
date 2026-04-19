@@ -30,6 +30,14 @@ from .models import (
     VerificationPolicy,
     WorkerTask,
 )
+from .planner import (
+    CodexPlannerBackend,
+    DossierDraft,
+    PlannerBackend,
+    PlanningMessage,
+    detect_language,
+    localized,
+)
 from .project import DeliveryOptions, GitLabProject, ProjectConfig
 from .repo_profile import CommandSpec, RepositoryProfile
 from .task_runner import TaskRunner, dump_task_run_report
@@ -89,11 +97,15 @@ class RunManifest(BaseModel):
     created_at: str
     repo_root: str
     planning_mode: str = "interactive"
+    language: str = "en"
     status: RunStatus = RunStatus.DRAFT
     goal: str
     title: str
     scan: RepoScanSummary
     answers: PlanningAnswers
+    planning_transcript: list[PlanningMessage] = Field(default_factory=list)
+    planner_session_id: str | None = None
+    execution_session_id: str | None = None
     latest_execute_report: str | None = None
     latest_delivery_report: str | None = None
 
@@ -196,30 +208,26 @@ class PlannerIO:
                 return False
             self.line("Please answer yes or no.")
 
-    def ask_list(self, prompt: str, *, default: list[str] | None = None) -> list[str]:
+    def ask_block(self, prompt: str, *, hint: str | None = None) -> str | None:
         self.line(prompt)
-        self.line("Enter one item per line. Submit an empty line to finish.")
-        if default:
-            self.line(f"Default: {', '.join(default)}")
-        items: list[str] = []
+        if hint:
+            self.line(hint)
+        lines: list[str] = []
+        saw_eof = False
         while True:
             self.stdout.write("> ")
             self.stdout.flush()
             line = self.stdin.readline()
             if line == "":
+                saw_eof = True
                 break
-            value = line.rstrip("\n").strip()
-            if not value:
+            value = line.rstrip("\n")
+            if not value.strip():
                 break
-            items.append(value)
-        return items or list(default or [])
-
-    def ask_commands(self, prompt: str, *, default: list[str] | None = None) -> list[str]:
-        default_text = "; ".join(default or [])
-        answer = self.ask_text(prompt, default=default_text)
-        if not answer:
-            return []
-        return [item.strip() for item in answer.split(";") if item.strip()]
+            lines.append(value)
+        if saw_eof and not lines:
+            return None
+        return "\n".join(lines).strip()
 
 
 class RepositoryInspector:
@@ -392,6 +400,9 @@ class RunManager:
         profile: RepositoryProfile,
         policy: ExecutionPolicy,
         task: WorkerTask,
+        goal_markdown: str,
+        architecture_markdown: str,
+        repo_scan_markdown: str,
     ) -> RunPaths:
         paths = self.create_paths(manifest.run_id)
         paths.root.mkdir(parents=True, exist_ok=True)
@@ -433,9 +444,9 @@ class RunManager:
                 ]
             },
         )
-        paths.goal_path.write_text(_render_goal_markdown(manifest), encoding="utf-8")
-        paths.architecture_path.write_text(_render_architecture_markdown(manifest), encoding="utf-8")
-        paths.repo_scan_path.write_text(_render_repo_scan_markdown(manifest.scan), encoding="utf-8")
+        paths.goal_path.write_text(goal_markdown, encoding="utf-8")
+        paths.architecture_path.write_text(architecture_markdown, encoding="utf-8")
+        paths.repo_scan_path.write_text(repo_scan_markdown, encoding="utf-8")
         self.save_manifest(manifest)
         return paths
 
@@ -454,102 +465,116 @@ class RunManager:
 
 
 class StartFlow:
-    def __init__(self, *, inspector: RepositoryInspector | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        inspector: RepositoryInspector | None = None,
+        planner: PlannerBackend | None = None,
+        max_rounds: int = 3,
+    ) -> None:
         self.inspector = inspector or RepositoryInspector()
+        self.planner = planner or CodexPlannerBackend()
+        self.max_rounds = max_rounds
 
     def run(self, *, repo_root: str | Path, goal: str | None, io: PlannerIO) -> tuple[RunManifest, RunPaths]:
         manager = RunManager(repo_root)
         scan = self.inspector.inspect(repo_root)
+        language = detect_language(goal or "")
+        if not goal:
+            prompt = localized(language, "initial_goal_prompt")
+            hint = localized(language, "initial_goal_hint")
+            goal = io.ask_block(prompt, hint=hint) or ""
+            language = detect_language(goal)
+        final_goal = goal
+        transcript = [PlanningMessage(role="user", content=final_goal)]
+        scan_summary = scan.model_dump(mode="json")
 
         io.line("")
-        io.line("Repository Scan")
-        io.line(f"- Repo: {scan.repo_name}")
-        io.line(f"- Root: {scan.repo_root}")
-        io.line(f"- Current branch: {scan.current_branch or 'unknown'}")
-        io.line(f"- Default branch: {scan.default_branch}")
-        io.line(f"- Remote: {scan.remote_name} -> {scan.remote_url or 'not configured'}")
-        io.line(f"- Stack: {', '.join(scan.detected_stack)}")
-        io.line(f"- Suggested lint: {'; '.join(scan.suggested_lint_commands) or 'none'}")
-        io.line(f"- Suggested tests: {'; '.join(scan.suggested_test_commands) or 'none'}")
-        io.line("")
-        io.line("Planning Session")
+        io.line(localized(language, "planning_section"))
+        io.line(localized(language, "planning_note"))
 
-        final_goal = goal or io.ask_text("Goal")
-        title = io.ask_text("Short task title", default=_title_from_goal(final_goal))
-        scope_items = io.ask_list("What is explicitly in scope?", default=[final_goal])
-        non_goals = io.ask_list("What is explicitly out of scope?", default=["No unrelated refactors."])
-        architecture_notes = io.ask_list(
-            "Key architecture decisions or notes?",
-            default=["Preserve existing patterns unless there is a clear reason to change them."],
-        )
-        allowed_paths = io.ask_list("Allowed paths or modules? Leave blank for repo-wide scope.", default=[])
-        forbidden_paths = io.ask_list("Forbidden paths or modules? Leave blank if none.", default=[])
-        constraints = io.ask_list(
-            "Technical or business constraints?",
-            default=["Avoid destructive operations outside policy."],
-        )
-        definition_of_done = io.ask_list(
-            "Definition of done: what must be true before execution can finish?",
-            default=["Relevant lint commands pass.", "Relevant tests pass.", "A GitLab merge request is ready for review."],
-        )
-        target_branch = io.ask_text("Target branch", default=scan.default_branch)
-        base_ref = io.ask_text("Base ref for the task branch", default=scan.current_branch or target_branch)
-        working_branch = io.ask_text("Working branch", default=f"damon/{_slug(title)}")
-        lint_commands = io.ask_commands("Lint command(s), separated by ';'", default=scan.suggested_lint_commands)
-        test_commands = io.ask_commands("Test command(s), separated by ';'", default=scan.suggested_test_commands)
-        static_analysis_commands = io.ask_commands(
-            "Static analysis command(s), separated by ';'. Leave blank if none.",
-            default=scan.suggested_static_analysis_commands,
-        )
-        run_review = io.ask_yes_no("Run codex review after implementation?", default=False)
-        auto_push_complete_pr = io.ask_yes_no("Push a complete PR automatically when execution succeeds?", default=True)
-        auto_push_blocked_pr = io.ask_yes_no("Push a blocked PR automatically when execution fails?", default=True)
-        draft_merge_request = io.ask_yes_no("Open merge requests as Draft?", default=True)
+        round_count = 0
+        while True:
+            io.line(localized(language, "codex_analyzing"))
+            turn = self.planner.next_turn(
+                repo_root=repo_root,
+                goal=final_goal,
+                scan_summary=scan_summary,
+                transcript=transcript,
+                language_hint=language,
+            )
+            language = turn.language or language
+            io.line("")
+            io.line(localized(language, "repo_scan_section"))
+            io.line(turn.reply_to_user)
+            transcript.append(PlanningMessage(role="assistant", content=turn.reply_to_user))
 
-        answers = PlanningAnswers(
+            if turn.ready_for_dossier and io.ask_yes_no(localized(language, "freeze_now"), default=True):
+                break
+
+            if round_count >= self.max_rounds:
+                break
+
+            answer = io.ask_block(
+                localized(language, "answer_prompt"),
+                hint=localized(language, "answer_hint"),
+            )
+            if answer is None:
+                break
+            if not answer.strip():
+                if turn.ready_for_dossier:
+                    break
+                io.line(localized(language, "empty_answer_retry"))
+                continue
+            language = detect_language(answer) or language
+            transcript.append(PlanningMessage(role="user", content=answer))
+            round_count += 1
+
+        io.line(localized(language, "codex_drafting"))
+        dossier = self.planner.build_dossier(
+            repo_root=repo_root,
             goal=final_goal,
-            title=title,
-            scope_items=scope_items,
-            non_goals=non_goals,
-            architecture_notes=architecture_notes,
-            allowed_paths=allowed_paths,
-            forbidden_paths=forbidden_paths,
-            constraints=constraints,
-            definition_of_done=definition_of_done,
-            lint_commands=lint_commands,
-            test_commands=test_commands,
-            static_analysis_commands=static_analysis_commands,
-            target_branch=target_branch,
-            base_ref=base_ref,
-            working_branch=working_branch,
-            run_review=run_review,
-            auto_push_complete_pr=auto_push_complete_pr,
-            auto_push_blocked_pr=auto_push_blocked_pr,
-            draft_merge_request=draft_merge_request,
+            scan_summary=scan_summary,
+            transcript=transcript,
+            language_hint=language,
         )
+        language = dossier.language or language
+        answers = _build_answers_from_dossier(dossier)
 
         manifest = RunManifest(
-            run_id=manager.create_run_id(title),
+            run_id=manager.create_run_id(answers.title),
             created_at=datetime.now().isoformat(timespec="seconds"),
             repo_root=str(Path(repo_root).resolve()),
+            language=language,
             goal=final_goal,
-            title=title,
+            title=answers.title,
             scan=scan,
             answers=answers,
+            planning_transcript=transcript,
+            planner_session_id=getattr(self.planner, "session_id", None),
         )
         project = _build_project_config(scan, answers)
         profile = _build_repository_profile(answers)
         policy = _build_execution_policy(answers)
         task = _build_task_contract(manifest)
-        paths = manager.write_dossier(manifest, project=project, profile=profile, policy=policy, task=task)
+        paths = manager.write_dossier(
+            manifest,
+            project=project,
+            profile=profile,
+            policy=policy,
+            task=task,
+            goal_markdown=dossier.goal_markdown,
+            architecture_markdown=dossier.architecture_markdown,
+            repo_scan_markdown=dossier.repo_scan_markdown,
+        )
 
         io.line("")
-        io.line("Dossier Summary")
+        io.line(localized(language, "dossier_summary"))
+        io.line(dossier.summary_for_user)
         io.line(f"- Run ID: {manifest.run_id}")
         io.line(f"- Working branch: {answers.working_branch}")
         io.line(f"- Dossier: {paths.root}")
-        io.line(f"- Goal: {answers.goal}")
-        freeze = io.ask_yes_no("Freeze this dossier and mark it ready for execution?", default=True)
+        freeze = io.ask_yes_no(localized(language, "freeze_final"), default=True)
         manifest.status = RunStatus.READY if freeze else RunStatus.DRAFT
         manager.save_manifest(manifest)
         return manifest, paths
@@ -588,10 +613,12 @@ def execute_run(
         reset_worktree=reset_worktree,
         worker_timeout_seconds=worker_timeout_seconds,
         review_timeout_seconds=review_timeout_seconds,
+        worker_session_id=manifest.execution_session_id,
     )
     payload = json.loads(dump_task_run_report(report))
     report_path = manager.save_report(run_id, "execute-latest", payload)
     manifest.latest_execute_report = str(report_path.relative_to(manager.repo_root))
+    manifest.execution_session_id = (payload.get("worker_result") or {}).get("session_id")
 
     if report.success and not dry_run and manifest.answers.auto_push_complete_pr:
         delivery = create_complete_pr(repo_root=repo_root, run_id=run_id)
@@ -736,6 +763,30 @@ def _build_project_config(scan: RepoScanSummary, answers: PlanningAnswers) -> Pr
     )
 
 
+def _build_answers_from_dossier(dossier: DossierDraft) -> PlanningAnswers:
+    return PlanningAnswers(
+        goal=dossier.goal,
+        title=dossier.title,
+        scope_items=dossier.scope_items,
+        non_goals=dossier.non_goals,
+        architecture_notes=dossier.architecture_notes,
+        allowed_paths=dossier.allowed_paths,
+        forbidden_paths=dossier.forbidden_paths,
+        constraints=dossier.constraints,
+        definition_of_done=dossier.definition_of_done,
+        lint_commands=dossier.lint_commands,
+        test_commands=dossier.test_commands,
+        static_analysis_commands=dossier.static_analysis_commands,
+        target_branch=dossier.target_branch,
+        base_ref=dossier.base_ref,
+        working_branch=dossier.working_branch,
+        run_review=dossier.run_review,
+        auto_push_complete_pr=dossier.auto_push_complete_pr,
+        auto_push_blocked_pr=dossier.auto_push_blocked_pr,
+        draft_merge_request=dossier.draft_merge_request,
+    )
+
+
 def _build_repository_profile(answers: PlanningAnswers) -> RepositoryProfile:
     return RepositoryProfile(
         version="0.1",
@@ -821,48 +872,6 @@ def _build_task_contract(manifest: RunManifest) -> WorkerTask:
             merge_request_template="default",
         ),
     )
-
-
-def _render_goal_markdown(manifest: RunManifest) -> str:
-    lines = [f"# {manifest.title}", "", "## Goal", "", manifest.goal, "", "## In Scope", ""]
-    lines.extend(f"- {item}" for item in manifest.answers.scope_items or [manifest.goal])
-    lines.extend(["", "## Out of Scope", ""])
-    lines.extend(f"- {item}" for item in manifest.answers.non_goals or ["None specified."])
-    return "\n".join(lines)
-
-
-def _render_architecture_markdown(manifest: RunManifest) -> str:
-    lines = [
-        f"# Architecture Notes for {manifest.run_id}",
-        "",
-        "## Repo Context",
-        "",
-        f"- Repo root: {manifest.scan.repo_root}",
-        f"- Stack: {', '.join(manifest.scan.detected_stack)}",
-        f"- Base ref: {manifest.answers.base_ref or manifest.scan.default_branch}",
-        "",
-        "## Notes",
-        "",
-    ]
-    lines.extend(f"- {item}" for item in manifest.answers.architecture_notes or ["No extra notes provided."])
-    return "\n".join(lines)
-
-
-def _render_repo_scan_markdown(scan: RepoScanSummary) -> str:
-    lines = [
-        f"# Repository Scan: {scan.repo_name}",
-        "",
-        f"- Root: {scan.repo_root}",
-        f"- Current branch: {scan.current_branch or 'unknown'}",
-        f"- Default branch: {scan.default_branch}",
-        f"- Remote: {scan.remote_name} -> {scan.remote_url or 'not configured'}",
-        f"- Stack: {', '.join(scan.detected_stack)}",
-        "",
-        "## Top Level Entries",
-        "",
-    ]
-    lines.extend(f"- {item}" for item in scan.top_level_entries)
-    return "\n".join(lines)
 
 
 def _render_complete_pr_description(manifest: RunManifest, execution_report: dict) -> str:
