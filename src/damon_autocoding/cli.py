@@ -17,8 +17,50 @@ def bi(zh: str, en: str) -> str:
     return f"{zh} / {en}"
 
 
+PRIMARY_COMMANDS = {
+    "start",
+    "execute",
+    "complete-pr",
+    "blocked-pr",
+}
+
+
+class DamonHelpFormatter(argparse.RawTextHelpFormatter):
+    pass
+
+
+class DamonArgumentParser(argparse.ArgumentParser):
+    def format_help(self) -> str:
+        if self.prog == "damon":
+            return "\n".join(
+                [
+                    "usage: damon [-h] {start,execute,complete-pr,blocked-pr} ...",
+                    "",
+                    bi(
+                        "Damon 是一个先规划、后执行、以 PR 为结束态的开发命令行。",
+                        "Damon is a planning-first autonomous coding CLI that ends in a PR.",
+                    ),
+                    "",
+                    "commands:",
+                    f"  start        {bi('交互式规划并生成 run dossier', 'interactive planning and dossier generation')}",
+                    f"  execute      {bi('执行已冻结的 dossier', 'execute a frozen dossier')}",
+                    f"  complete-pr  {bi('把成功 run 推成完整 PR', 'push a successful run as a complete PR')}",
+                    f"  blocked-pr   {bi('把失败 run 推成阻塞 PR', 'push a failed run as a blocked PR')}",
+                    "",
+                    bi("快速开始:", "Quick start:"),
+                    '  damon start --repo . --goal "实现一个功能并提 PR"',
+                    "  damon execute --repo . --latest",
+                    "",
+                    "options:",
+                    "  -h, --help   show this help message and exit",
+                    "",
+                ]
+            )
+        return super().format_help()
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = DamonArgumentParser(
         prog="damon",
         description=bi(
             "Damon 是一个先规划、后执行、以 PR 为结束态的开发命令行。",
@@ -37,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
                 f"  blocked-pr  {bi('失败时推送阻塞 PR', 'push a blocked PR when blocked')}",
             ]
         ),
-        formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=DamonHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -48,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
             "扫描仓库、与你澄清目标和约束，并生成一份可冻结的 run dossier。",
             "Scan the repository, clarify scope and constraints with you, and generate a run dossier.",
         ),
-        formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=DamonHelpFormatter,
     )
     start_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
     start_parser.add_argument("--goal", help=bi("初始目标；省略时进入提问", "initial goal; if omitted, the planner will ask"))
@@ -60,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
             "读取 run dossier，创建 worktree，调用 Codex 和仓库验证命令推进任务。",
             "Read a run dossier, create a worktree, invoke Codex, and run repository checks.",
         ),
-        formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=DamonHelpFormatter,
     )
     execute_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
     execute_parser.add_argument("--run", help=bi("指定 run ID", "explicit run ID"))
@@ -83,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
         "complete-pr",
         help=bi("把成功 run 推成完整 PR", "push a successful run as a complete PR"),
         description=bi("把最近一次成功执行的结果推成完整 PR。", "Push the latest successful execution as a complete PR."),
-        formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=DamonHelpFormatter,
     )
     complete_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
     complete_parser.add_argument("--run", help=bi("指定 run ID", "explicit run ID"))
@@ -93,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
         "blocked-pr",
         help=bi("把失败 run 推成阻塞 PR", "push a failed run as a blocked PR"),
         description=bi("把最近一次失败执行的结果推成 blocked PR。", "Push the latest failed execution as a blocked PR."),
-        formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=DamonHelpFormatter,
     )
     blocked_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
     blocked_parser.add_argument("--run", help=bi("指定 run ID", "explicit run ID"))
@@ -101,8 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser(
         "validate",
-        help=bi("校验底层 YAML 配置", "validate low-level YAML configuration"),
-        formatter_class=argparse.RawTextHelpFormatter,
+        help="",
+        formatter_class=DamonHelpFormatter,
     )
     validate_parser.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
     validate_parser.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
@@ -111,8 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     simulate_parser = subparsers.add_parser(
         "simulate",
-        help=bi("模拟底层控制面决策", "simulate low-level control-plane decisions"),
-        formatter_class=argparse.RawTextHelpFormatter,
+        help="",
+        formatter_class=DamonHelpFormatter,
     )
     simulate_parser.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
     simulate_parser.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
@@ -120,8 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     render_delivery = subparsers.add_parser(
         "render-delivery",
-        help=bi("渲染 GitLab 交付命令", "render GitLab delivery command"),
-        formatter_class=argparse.RawTextHelpFormatter,
+        help="",
+        formatter_class=DamonHelpFormatter,
     )
     render_delivery.add_argument("--project", required=True, help=bi("项目配置 YAML 路径", "project YAML path"))
     render_delivery.add_argument("--source-branch", required=True, help=bi("源分支", "source branch"))
@@ -135,8 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_worker = subparsers.add_parser(
         "run-worker",
-        help=bi("直接调用底层 Codex worker", "invoke the low-level Codex worker directly"),
-        formatter_class=argparse.RawTextHelpFormatter,
+        help="",
+        formatter_class=DamonHelpFormatter,
     )
     run_worker.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
     run_worker.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
@@ -146,8 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     review_worker = subparsers.add_parser(
         "review-worker",
-        help=bi("直接运行底层 Codex review", "invoke low-level Codex review directly"),
-        formatter_class=argparse.RawTextHelpFormatter,
+        help="",
+        formatter_class=DamonHelpFormatter,
     )
     review_worker.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
     review_worker.add_argument("--workdir", required=True, help=bi("仓库工作目录", "repository working directory"))
@@ -156,8 +198,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_task = subparsers.add_parser(
         "run-task",
-        help=bi("运行旧版底层任务流", "run the legacy low-level task flow"),
-        formatter_class=argparse.RawTextHelpFormatter,
+        help="",
+        formatter_class=DamonHelpFormatter,
     )
     run_task.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
     run_task.add_argument("--project", required=True, help=bi("项目配置 YAML 路径", "project YAML path"))

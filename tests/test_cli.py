@@ -18,7 +18,8 @@ class CLITests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("Damon 是一个先规划、后执行、以 PR 为结束态的开发命令行", completed.stdout)
         self.assertIn("Quick start:", completed.stdout)
-        self.assertIn("start       交互式规划并生成 dossier", completed.stdout)
+        self.assertIn("start        交互式规划并生成 run dossier", completed.stdout)
+        self.assertNotIn("validate", completed.stdout)
 
 
 if __name__ == "__main__":
