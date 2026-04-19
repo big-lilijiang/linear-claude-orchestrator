@@ -184,7 +184,7 @@ class RunFlowTests(unittest.TestCase):
                 push_mock.return_value = subprocess.CompletedProcess(["git", "push"], 0, "ok", "")
                 payload = create_complete_pr(repo_root=repo_root, run_id=manifest.run_id)
 
-            self.assertEqual(payload["merge_request_spec"]["title"], "Draft: Planner driven task runner")
+            self.assertEqual(payload["merge_request_spec"]["title"], "Planner driven task runner")
             self.assertIn("Complete PR summary from Codex.", payload["merge_request_spec"]["description"])
             latest_manifest = RunManager(repo_root).load_manifest(manifest.run_id)
             self.assertEqual(latest_manifest.delivery_session_id, "summary-session-123")
@@ -222,7 +222,7 @@ class RunFlowTests(unittest.TestCase):
             blocker_path = repo_root / ".damon" / "blocked" / f"{manifest.run_id}.md"
             self.assertTrue(blocker_path.exists())
             self.assertIn("Need one user decision.", blocker_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["merge_request_spec"]["title"], "Draft: Blocked: Planner driven task runner")
+            self.assertEqual(payload["merge_request_spec"]["title"], "Blocked: Planner driven task runner")
             self.assertIn("Blocked PR summary from Codex.", payload["merge_request_spec"]["description"])
 
     def _init_repo(self, repo_root: Path) -> None:

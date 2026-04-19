@@ -66,7 +66,7 @@ class GitPolicy(BaseModel):
 
 class GitLabPolicy(BaseModel):
     open_merge_request: bool = True
-    draft_by_default: bool = True
+    draft_by_default: bool = False
     labels: list[str] = Field(default_factory=lambda: ["damon"])
 
 

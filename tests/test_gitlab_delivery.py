@@ -19,7 +19,7 @@ class GitLabDeliveryTests(unittest.TestCase):
             ),
             delivery=DeliveryOptions(
                 use_push_options=True,
-                draft_merge_requests=True,
+                draft_merge_requests=False,
                 default_labels=["damon", "bootstrap"],
             ),
         )
@@ -36,7 +36,8 @@ class GitLabDeliveryTests(unittest.TestCase):
         command = GitLabDelivery(self.project).build_push_command(spec)
         self.assertIn("merge_request.create", command)
         self.assertIn("merge_request.target=main", command)
-        self.assertIn("merge_request.title=Draft: Bootstrap Damon AutoCoding control plane", command)
+        self.assertIn("merge_request.title=Bootstrap Damon AutoCoding control plane", command)
+        self.assertIn("merge_request.draft", command)
         self.assertIn("merge_request.label=damon,bootstrap", command)
 
     def test_build_api_payload_encodes_labels(self) -> None:

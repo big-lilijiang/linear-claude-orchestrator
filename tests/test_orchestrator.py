@@ -39,7 +39,7 @@ def make_policy() -> ExecutionPolicy:
         ),
         delivery=DeliveryPolicy(
             git=GitPolicy(branch_prefix="damon/", commit_strategy=CommitStrategy.CHECKPOINT, push_after_green=True),
-            gitlab=GitLabPolicy(open_merge_request=True, draft_by_default=True, labels=["damon"]),
+            gitlab=GitLabPolicy(open_merge_request=True, draft_by_default=False, labels=["damon"]),
         ),
         verification=VerificationPolicy(
             require_unit_tests=True,

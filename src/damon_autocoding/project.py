@@ -26,7 +26,7 @@ class GitLabProject(BaseModel):
 
 class DeliveryOptions(BaseModel):
     use_push_options: bool = True
-    draft_merge_requests: bool = True
+    draft_merge_requests: bool = False
     default_labels: list[str] = Field(default_factory=list)
 
 

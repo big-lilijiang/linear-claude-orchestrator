@@ -10,7 +10,7 @@ gitlab:
   token_env_var: GITLAB_TOKEN
 delivery:
   use_push_options: true
-  draft_merge_requests: true
+  draft_merge_requests: false
   default_labels:
     - damon
     - bootstrap

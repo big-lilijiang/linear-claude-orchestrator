@@ -20,8 +20,6 @@ class MergeRequestSpec:
 
     @property
     def effective_title(self) -> str:
-        if self.draft and not self.title.startswith("Draft:"):
-            return f"Draft: {self.title}"
         return self.title
 
 
@@ -50,6 +48,8 @@ class GitLabDelivery:
                     f"merge_request.description={spec.description}",
                 ]
             )
+            if spec.draft:
+                command.extend(["-o", "merge_request.draft"])
             if spec.labels:
                 command.extend(["-o", f"merge_request.label={','.join(spec.labels)}"])
         return command
@@ -61,6 +61,7 @@ class GitLabDelivery:
             "title": spec.effective_title,
             "description": spec.description,
             "remove_source_branch": False,
+            "draft": spec.draft,
         }
         if spec.labels:
             payload["labels"] = ",".join(spec.labels)

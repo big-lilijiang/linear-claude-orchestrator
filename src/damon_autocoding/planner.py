@@ -54,7 +54,7 @@ class DossierDraft(BaseModel):
     run_review: bool = False
     auto_push_complete_pr: bool = True
     auto_push_blocked_pr: bool = True
-    draft_merge_request: bool = True
+    draft_merge_request: bool = False
     summary_for_user: str
     goal_markdown: str
     architecture_markdown: str
