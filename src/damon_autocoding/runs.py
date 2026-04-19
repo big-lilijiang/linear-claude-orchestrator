@@ -45,6 +45,11 @@ from .task_runner import TaskRunner, dump_task_run_report
 from .workers import CodexCLIWorker
 from .workspace import GitWorktreeManager
 
+try:
+    from prompt_toolkit import PromptSession
+except ImportError:
+    PromptSession = None
+
 
 class RunStatus(StrEnum):
     DRAFT = "draft"
@@ -182,6 +187,15 @@ class PlannerIO:
     def __init__(self, *, stdin: TextIO, stdout: TextIO) -> None:
         self.stdin = stdin
         self.stdout = stdout
+        self.session = None
+        if (
+            PromptSession is not None
+            and hasattr(stdin, "isatty")
+            and hasattr(stdout, "isatty")
+            and stdin.isatty()
+            and stdout.isatty()
+        ):
+            self.session = PromptSession()
 
     def line(self, text: str = "") -> None:
         self.stdout.write(f"{text}\n")
@@ -189,6 +203,10 @@ class PlannerIO:
 
     def ask_text(self, prompt: str, *, default: str | None = None) -> str:
         suffix = f" [{default}]" if default else ""
+        if self.session is not None:
+            answer = self.session.prompt(f"{prompt}{suffix}: ")
+            value = answer.strip()
+            return value or (default or "")
         self.stdout.write(f"{prompt}{suffix}: ")
         self.stdout.flush()
         answer = self.stdin.readline()
@@ -217,13 +235,20 @@ class PlannerIO:
         lines: list[str] = []
         saw_eof = False
         while True:
-            self.stdout.write("> ")
-            self.stdout.flush()
-            line = self.stdin.readline()
-            if line == "":
-                saw_eof = True
-                break
-            value = line.rstrip("\n")
+            if self.session is not None:
+                try:
+                    value = self.session.prompt("> ")
+                except EOFError:
+                    saw_eof = True
+                    break
+            else:
+                self.stdout.write("> ")
+                self.stdout.flush()
+                line = self.stdin.readline()
+                if line == "":
+                    saw_eof = True
+                    break
+                value = line.rstrip("\n")
             if not value.strip():
                 break
             lines.append(value)
