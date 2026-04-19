@@ -16,10 +16,12 @@ class CLITests(unittest.TestCase):
             env=env,
         )
         self.assertEqual(completed.returncode, 0)
-        self.assertIn("Damon 是一个先规划、后执行、以 PR 为结束态的开发命令行", completed.stdout)
+        self.assertIn("Damon 是一个围绕 Codex 的旁路推进器", completed.stdout)
         self.assertIn("Quick start:", completed.stdout)
-        self.assertIn("start        交互式规划并生成 run dossier", completed.stdout)
-        self.assertNotIn("validate", completed.stdout)
+        self.assertIn("attach  绑定当前仓库到一个 Codex session", completed.stdout)
+        self.assertIn("loop    自动继续推进 N 个 checkpoint", completed.stdout)
+        self.assertIn("status  查看当前绑定和最近推进结果", completed.stdout)
+        self.assertIn("pr      把当前结果推成 PR", completed.stdout)
 
 
 if __name__ == "__main__":
