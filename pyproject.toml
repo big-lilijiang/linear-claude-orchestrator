@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 damon-autocoding = "damon_autocoding.cli:main"
+damon = "damon_autocoding.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

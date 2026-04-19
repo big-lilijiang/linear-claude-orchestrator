@@ -103,3 +103,25 @@ V1 的交付优先顺序如下：
 4. 渲染 GitLab Merge Request 交付命令；可选地直接 push 创建 MR。
 
 这条主链仍然是单 worker、单任务模式，但它已经把“从配置到执行再到交付”的路径固化下来了。
+
+## V2 CLI Product Layer
+
+为了满足“先交互式规划，再进入自治执行，最后以 PR 结束”的体验，当前代码库新增了四个命令层概念：
+
+1. `damon start`
+2. `damon execute`
+3. `damon complete-pr`
+4. `damon blocked-pr`
+
+这四个命令把一次 run 的生命周期固定为：
+
+- 在 `start` 阶段扫描仓库、与用户澄清目标、生成 dossier。
+- 在 `execute` 阶段读取冻结 dossier，调用 worktree、worker、验证和重试逻辑。
+- 在成功场景下进入 `complete-pr`。
+- 在失败但已有可交付产物时进入 `blocked-pr`。
+
+对应的持久化目录位于仓库下：
+
+- `.damon/runs/<RUN_ID>/run.yaml`
+- `.damon/runs/<RUN_ID>/dossier/*`
+- `.damon/runs/<RUN_ID>/reports/*`

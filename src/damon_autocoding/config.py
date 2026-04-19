@@ -45,3 +45,16 @@ def load_project(path: str | Path) -> ProjectConfig:
 
 def load_repository_profile(path: str | Path) -> RepositoryProfile:
     return load_model(path, RepositoryProfile)
+
+
+def dump_yaml(path: str | Path, data: dict) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        yaml.safe_dump(data, sort_keys=False, allow_unicode=False),
+        encoding="utf-8",
+    )
+
+
+def save_model(path: str | Path, model: BaseModel) -> None:
+    dump_yaml(path, model.model_dump(mode="json"))

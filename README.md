@@ -13,6 +13,7 @@
 - 一个可直接调用本机 `codex exec` / `codex review` 的 worker adapter。
 - 一个可生成 GitLab Merge Request 的交付模块，优先支持 SSH push options，也支持 API payload 生成。
 - 一个 `run-task` 主入口，用 `git worktree` 隔离工作区并串起检查、执行和交付计划。
+- 一套 `damon start / execute / complete-pr / blocked-pr` 命令，把规划、执行和交付拉成可体验流程。
 
 ## Repository Layout
 
@@ -24,6 +25,7 @@
 - `examples/self_test_task.yaml`: 用当前仓库验证主链的自测任务。
 - `examples/runtime_state.yaml`: 示例运行态。
 - `src/damon_autocoding/`: 控制面骨架代码。
+- `.damon/runs/<RUN_ID>/`: 规划档案和执行报告。
 
 ## Quick Start
 
@@ -64,6 +66,11 @@ PYTHONPATH=src python3 -m damon_autocoding run-task \
   --dry-run \
   --cleanup \
   --reset-worktree
+```
+
+```bash
+PYTHONPATH=src python3 -m damon_autocoding start --repo . --goal "Plan and execute a repository task"
+PYTHONPATH=src python3 -m damon_autocoding execute --repo . --latest --dry-run --cleanup --reset-worktree
 ```
 
 ## Design Intent

@@ -2,17 +2,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
 
 from .config import load_policy, load_project, load_repository_profile, load_runtime_state, load_task
 from .gitlab import GitLabDelivery, MergeRequestSpec
 from .orchestrator import ControlPlane
+from .runs import PlannerIO, RunManager, StartFlow, create_blocked_pr, create_complete_pr, execute_run
 from .task_runner import TaskRunner, dump_task_run_report
 from .workers import CodexCLIWorker, dump_worker_result
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Damon AutoCoding control plane prototype.")
+    parser = argparse.ArgumentParser(description="Damon CLI for planning, executing, and delivering autonomous coding runs.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    start_parser = subparsers.add_parser("start", help="Create a run dossier through an interactive planning session.")
+    start_parser.add_argument("--repo", default=".", help="Target repository root.")
+    start_parser.add_argument("--goal", help="Initial goal statement. If omitted, the planner will ask for it.")
+
+    execute_parser = subparsers.add_parser("execute", help="Execute a frozen run dossier.")
+    execute_parser.add_argument("--repo", default=".", help="Target repository root.")
+    execute_parser.add_argument("--run", help="Explicit run ID.")
+    execute_parser.add_argument("--latest", action="store_true", help="Execute the latest run under .damon/runs.")
+    execute_parser.add_argument("--dry-run", action="store_true", help="Run verification flow without invoking Codex or pushing PRs.")
+    execute_parser.add_argument("--cleanup", action="store_true", help="Remove the worktree after execution finishes.")
+    execute_parser.add_argument("--reset-worktree", action="store_true", help="Replace an existing worktree for the run.")
+    execute_parser.add_argument("--worker-timeout-seconds", type=int, help="Optional timeout override for codex exec.")
+    execute_parser.add_argument("--review-timeout-seconds", type=int, help="Optional timeout override for codex review.")
+
+    complete_parser = subparsers.add_parser("complete-pr", help="Push the latest successful run as a merge request.")
+    complete_parser.add_argument("--repo", default=".", help="Target repository root.")
+    complete_parser.add_argument("--run", help="Explicit run ID.")
+    complete_parser.add_argument("--latest", action="store_true", help="Use the latest run.")
+
+    blocked_parser = subparsers.add_parser("blocked-pr", help="Push the latest failed run as a blocked merge request.")
+    blocked_parser.add_argument("--repo", default=".", help="Target repository root.")
+    blocked_parser.add_argument("--run", help="Explicit run ID.")
+    blocked_parser.add_argument("--latest", action="store_true", help="Use the latest run.")
 
     validate_parser = subparsers.add_parser("validate", help="Validate policy and task files.")
     validate_parser.add_argument("--policy", required=True, help="Path to execution policy YAML.")
@@ -61,9 +88,72 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_run_id(*, repo: str | Path, run: str | None, latest: bool) -> str:
+    if run:
+        return run
+    if latest:
+        return RunManager(repo).latest_run_id()
+    raise ValueError("Specify --run or --latest")
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.command == "start":
+        manifest, paths = StartFlow().run(
+            repo_root=args.repo,
+            goal=args.goal,
+            io=PlannerIO(stdin=sys.stdin, stdout=sys.stdout),
+        )
+        print(
+            json.dumps(
+                {
+                    "run_id": manifest.run_id,
+                    "status": manifest.status,
+                    "repo_root": manifest.repo_root,
+                    "dossier_root": str(paths.root),
+                    "next_command": f"damon execute --repo {manifest.repo_root} --run {manifest.run_id}",
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "execute":
+        run_id = resolve_run_id(repo=args.repo, run=args.run, latest=args.latest)
+        manifest, payload = execute_run(
+            repo_root=args.repo,
+            run_id=run_id,
+            dry_run=args.dry_run,
+            cleanup=args.cleanup,
+            reset_worktree=args.reset_worktree,
+            worker_timeout_seconds=args.worker_timeout_seconds,
+            review_timeout_seconds=args.review_timeout_seconds,
+        )
+        print(
+            json.dumps(
+                {
+                    "run_id": manifest.run_id,
+                    "status": manifest.status,
+                    "report": payload,
+                    "latest_execute_report": manifest.latest_execute_report,
+                    "latest_delivery_report": manifest.latest_delivery_report,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.command == "complete-pr":
+        run_id = resolve_run_id(repo=args.repo, run=args.run, latest=args.latest)
+        print(json.dumps(create_complete_pr(repo_root=args.repo, run_id=run_id), indent=2))
+        return 0
+
+    if args.command == "blocked-pr":
+        run_id = resolve_run_id(repo=args.repo, run=args.run, latest=args.latest)
+        print(json.dumps(create_blocked_pr(repo_root=args.repo, run_id=run_id), indent=2))
+        return 0
 
     if args.command == "validate":
         load_policy(args.policy)
