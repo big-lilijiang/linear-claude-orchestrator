@@ -40,6 +40,7 @@ from .planner import (
 )
 from .project import DeliveryOptions, GitLabProject, ProjectConfig
 from .repo_profile import CommandSpec, RepositoryProfile
+from .summarizer import CodexPRSummaryBackend, PRSummaryBackend
 from .task_runner import TaskRunner, dump_task_run_report
 from .workers import CodexCLIWorker
 from .workspace import GitWorktreeManager
@@ -108,6 +109,7 @@ class RunManifest(BaseModel):
     execution_session_id: str | None = None
     latest_execute_report: str | None = None
     latest_delivery_report: str | None = None
+    delivery_session_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -621,10 +623,12 @@ def execute_run(
     manifest.execution_session_id = (payload.get("worker_result") or {}).get("session_id")
 
     if report.success and not dry_run and manifest.answers.auto_push_complete_pr:
+        print(localized(manifest.language, "codex_summarizing_complete_pr"))
         delivery = create_complete_pr(repo_root=repo_root, run_id=run_id)
         manifest.latest_delivery_report = str(Path(delivery["report_path"]).relative_to(manager.repo_root))
         manifest.status = RunStatus.COMPLETE_PR
     elif not report.success and not dry_run and manifest.answers.auto_push_blocked_pr:
+        print(localized(manifest.language, "codex_summarizing_blocked_pr"))
         delivery = create_blocked_pr(repo_root=repo_root, run_id=run_id)
         manifest.latest_delivery_report = str(Path(delivery["report_path"]).relative_to(manager.repo_root))
         manifest.status = RunStatus.BLOCKED_PR
@@ -650,6 +654,7 @@ def create_complete_pr(*, repo_root: str | Path, run_id: str) -> dict:
     payload = _push_run_merge_request(repo_root=repo_root, run_id=run_id, kind="complete", execution_report=report)
     report_path = manager.save_report(run_id, "complete-pr-latest", payload)
     manifest.latest_delivery_report = str(report_path.relative_to(manager.repo_root))
+    manifest.delivery_session_id = payload.get("delivery_session_id")
     manifest.status = RunStatus.COMPLETE_PR
     manager.save_manifest(manifest)
     payload["report_path"] = str(report_path)
@@ -665,6 +670,7 @@ def create_blocked_pr(*, repo_root: str | Path, run_id: str) -> dict:
     payload = _push_run_merge_request(repo_root=repo_root, run_id=run_id, kind="blocked", execution_report=report)
     report_path = manager.save_report(run_id, "blocked-pr-latest", payload)
     manifest.latest_delivery_report = str(report_path.relative_to(manager.repo_root))
+    manifest.delivery_session_id = payload.get("delivery_session_id")
     manifest.status = RunStatus.BLOCKED_PR
     manager.save_manifest(manifest)
     payload["report_path"] = str(report_path)
@@ -684,10 +690,21 @@ def _push_run_merge_request(*, repo_root: str | Path, run_id: str, kind: str, ex
         raise RuntimeError("Worktree path no longer exists. Re-run execute without cleanup before pushing a PR.")
 
     git_manager = GitWorktreeManager(repo_root, remote_name=project.remote_name)
-    if kind == "blocked":
+    summary_backend = CodexPRSummaryBackend()
+    summary = summary_backend.build_summary(
+        kind=kind,
+        repo_root=repo_root,
+        worktree_path=worktree_path,
+        manifest=manifest.model_dump(mode="json"),
+        execution_report=execution_report,
+        language_hint=manifest.language,
+        session_id=manifest.execution_session_id or manifest.delivery_session_id,
+    )
+
+    if kind == "blocked" and summary.blocker_note_markdown.strip():
         blocker_path = worktree_path / ".damon" / "blocked" / f"{run_id}.md"
         blocker_path.parent.mkdir(parents=True, exist_ok=True)
-        blocker_path.write_text(_render_blocker_note(manifest, execution_report), encoding="utf-8")
+        blocker_path.write_text(summary.blocker_note_markdown, encoding="utf-8")
 
     commit_sha = execution_report.get("commit_sha")
     if git_manager.has_uncommitted_changes(worktree_path):
@@ -700,17 +717,11 @@ def _push_run_merge_request(*, repo_root: str | Path, run_id: str, kind: str, ex
     elif not commit_sha:
         commit_sha = git_manager.current_head(worktree_path)
 
-    title = task.title if kind == "complete" else f"Blocked: {task.title}"
-    description = (
-        _render_complete_pr_description(manifest, execution_report)
-        if kind == "complete"
-        else _render_blocked_pr_description(manifest, execution_report)
-    )
     spec = MergeRequestSpec(
         source_branch=execution_report["working_branch"],
         target_branch=task.repository.target_branch,
-        title=title,
-        description=description,
+        title=summary.title,
+        description=summary.description,
         draft=manifest.answers.draft_merge_request,
         labels=project.delivery.default_labels,
     )
@@ -731,6 +742,7 @@ def _push_run_merge_request(*, repo_root: str | Path, run_id: str, kind: str, ex
         "push_stdout": result.stdout,
         "push_stderr": result.stderr,
         "merge_request_url_hint": f"{project.gitlab.project_web_url}/-/merge_requests",
+        "delivery_session_id": summary_backend.session_id,
     }
 
 
@@ -873,63 +885,6 @@ def _build_task_contract(manifest: RunManifest) -> WorkerTask:
         ),
     )
 
-
-def _render_complete_pr_description(manifest: RunManifest, execution_report: dict) -> str:
-    lines = [
-        f"Automated delivery for {manifest.run_id}.",
-        "",
-        f"Goal: {manifest.goal}",
-        f"Working branch: {execution_report.get('working_branch')}",
-        "",
-        "Definition of done:",
-    ]
-    lines.extend(f"- {item}" for item in manifest.answers.definition_of_done)
-    return "\n".join(lines)
-
-
-def _render_blocked_pr_description(manifest: RunManifest, execution_report: dict) -> str:
-    lines = [
-        f"Blocked automated delivery for {manifest.run_id}.",
-        "",
-        f"Goal: {manifest.goal}",
-        f"Working branch: {execution_report.get('working_branch')}",
-        "",
-        "Reasons this run is blocked:",
-    ]
-    worker_result = execution_report.get("worker_result")
-    if worker_result:
-        lines.append(f"- Worker exit code: {worker_result.get('exit_code')}")
-    for result in execution_report.get("lint_results", []):
-        if result.get("required") and result.get("exit_code") != 0:
-            lines.append(f"- Lint failed: {result.get('name')}")
-    for result in execution_report.get("test_results", []):
-        if result.get("required") and result.get("exit_code") != 0:
-            lines.append(f"- Test failed: {result.get('name')}")
-    lines.extend(
-        [
-            "",
-            "Definition of done:",
-        ]
-    )
-    lines.extend(f"- {item}" for item in manifest.answers.definition_of_done)
-    return "\n".join(lines)
-
-
-def _render_blocker_note(manifest: RunManifest, execution_report: dict) -> str:
-    lines = [
-        f"# Blocked Run: {manifest.run_id}",
-        "",
-        f"Goal: {manifest.goal}",
-        f"Title: {manifest.title}",
-        "",
-        "The automated run could not finish without escalation. This note is committed so the branch can be reviewed.",
-        "",
-        "Execution summary:",
-        f"- Success: {execution_report.get('success')}",
-        f"- Worktree: {execution_report.get('worktree_path')}",
-        f"- Base ref: {execution_report.get('base_ref')}",
-    ]
-    return "\n".join(lines)
 
 
 def _derive_web_info(remote_url: str) -> tuple[str, str]:

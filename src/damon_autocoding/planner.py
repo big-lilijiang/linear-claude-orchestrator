@@ -402,6 +402,8 @@ def localized(language: str, key: str) -> str:
             "codex_analyzing": "Codex 正在分析仓库并收敛下一轮问题...",
             "codex_drafting": "Codex 正在生成执行 dossier 草案...",
             "codex_executing": "Codex 正在执行任务，请稍候...",
+            "codex_summarizing_complete_pr": "Codex 正在整理完整 PR 摘要...",
+            "codex_summarizing_blocked_pr": "Codex 正在整理阻塞 PR 摘要...",
         },
         "en": {
             "planning_section": "Planning Session",
@@ -419,6 +421,8 @@ def localized(language: str, key: str) -> str:
             "codex_analyzing": "Codex is analyzing the repository and preparing the next planning turn...",
             "codex_drafting": "Codex is drafting the execution dossier...",
             "codex_executing": "Codex is executing the task. Please wait...",
+            "codex_summarizing_complete_pr": "Codex is preparing the complete PR summary...",
+            "codex_summarizing_blocked_pr": "Codex is preparing the blocked PR summary...",
         },
     }
     return table["zh" if language == "zh" else "en"][key]
