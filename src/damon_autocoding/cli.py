@@ -13,77 +13,167 @@ from .task_runner import TaskRunner, dump_task_run_report
 from .workers import CodexCLIWorker, dump_worker_result
 
 
+def bi(zh: str, en: str) -> str:
+    return f"{zh} / {en}"
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Damon CLI for planning, executing, and delivering autonomous coding runs.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(
+        prog="damon",
+        description=bi(
+            "Damon 是一个先规划、后执行、以 PR 为结束态的开发命令行。",
+            "Damon is a planning-first autonomous coding CLI that ends in a PR.",
+        ),
+        epilog="\n".join(
+            [
+                bi("快速开始:", "Quick start:"),
+                "  damon start --repo . --goal \"实现一个功能并提 PR\"",
+                "  damon execute --repo . --latest",
+                "",
+                bi("常用命令:", "Common commands:"),
+                f"  start       {bi('交互式规划并生成 dossier', 'interactive planning and dossier generation')}",
+                f"  execute     {bi('按 dossier 执行任务', 'execute a frozen dossier')}",
+                f"  complete-pr {bi('成功后推送完整 PR', 'push a complete PR after success')}",
+                f"  blocked-pr  {bi('失败时推送阻塞 PR', 'push a blocked PR when blocked')}",
+            ]
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command")
 
-    start_parser = subparsers.add_parser("start", help="Create a run dossier through an interactive planning session.")
-    start_parser.add_argument("--repo", default=".", help="Target repository root.")
-    start_parser.add_argument("--goal", help="Initial goal statement. If omitted, the planner will ask for it.")
+    start_parser = subparsers.add_parser(
+        "start",
+        help=bi("交互式规划并生成 run dossier", "interactive planning and dossier generation"),
+        description=bi(
+            "扫描仓库、与你澄清目标和约束，并生成一份可冻结的 run dossier。",
+            "Scan the repository, clarify scope and constraints with you, and generate a run dossier.",
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    start_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
+    start_parser.add_argument("--goal", help=bi("初始目标；省略时进入提问", "initial goal; if omitted, the planner will ask"))
 
-    execute_parser = subparsers.add_parser("execute", help="Execute a frozen run dossier.")
-    execute_parser.add_argument("--repo", default=".", help="Target repository root.")
-    execute_parser.add_argument("--run", help="Explicit run ID.")
-    execute_parser.add_argument("--latest", action="store_true", help="Execute the latest run under .damon/runs.")
-    execute_parser.add_argument("--dry-run", action="store_true", help="Run verification flow without invoking Codex or pushing PRs.")
-    execute_parser.add_argument("--cleanup", action="store_true", help="Remove the worktree after execution finishes.")
-    execute_parser.add_argument("--reset-worktree", action="store_true", help="Replace an existing worktree for the run.")
-    execute_parser.add_argument("--worker-timeout-seconds", type=int, help="Optional timeout override for codex exec.")
-    execute_parser.add_argument("--review-timeout-seconds", type=int, help="Optional timeout override for codex review.")
+    execute_parser = subparsers.add_parser(
+        "execute",
+        help=bi("执行已冻结的 dossier", "execute a frozen dossier"),
+        description=bi(
+            "读取 run dossier，创建 worktree，调用 Codex 和仓库验证命令推进任务。",
+            "Read a run dossier, create a worktree, invoke Codex, and run repository checks.",
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    execute_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
+    execute_parser.add_argument("--run", help=bi("指定 run ID", "explicit run ID"))
+    execute_parser.add_argument("--latest", action="store_true", help=bi("执行最新 run", "execute the latest run"))
+    execute_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=bi("只跑流程和验证，不调用 Codex、不推 PR", "run orchestration and checks only; do not invoke Codex or push PRs"),
+    )
+    execute_parser.add_argument("--cleanup", action="store_true", help=bi("结束后删除 worktree", "remove the worktree when finished"))
+    execute_parser.add_argument(
+        "--reset-worktree",
+        action="store_true",
+        help=bi("如果 worktree 已存在则重建", "replace the worktree if it already exists"),
+    )
+    execute_parser.add_argument("--worker-timeout-seconds", type=int, help=bi("覆盖 Codex 执行超时", "override codex exec timeout"))
+    execute_parser.add_argument("--review-timeout-seconds", type=int, help=bi("覆盖 Codex review 超时", "override codex review timeout"))
 
-    complete_parser = subparsers.add_parser("complete-pr", help="Push the latest successful run as a merge request.")
-    complete_parser.add_argument("--repo", default=".", help="Target repository root.")
-    complete_parser.add_argument("--run", help="Explicit run ID.")
-    complete_parser.add_argument("--latest", action="store_true", help="Use the latest run.")
+    complete_parser = subparsers.add_parser(
+        "complete-pr",
+        help=bi("把成功 run 推成完整 PR", "push a successful run as a complete PR"),
+        description=bi("把最近一次成功执行的结果推成完整 PR。", "Push the latest successful execution as a complete PR."),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    complete_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
+    complete_parser.add_argument("--run", help=bi("指定 run ID", "explicit run ID"))
+    complete_parser.add_argument("--latest", action="store_true", help=bi("使用最新 run", "use the latest run"))
 
-    blocked_parser = subparsers.add_parser("blocked-pr", help="Push the latest failed run as a blocked merge request.")
-    blocked_parser.add_argument("--repo", default=".", help="Target repository root.")
-    blocked_parser.add_argument("--run", help="Explicit run ID.")
-    blocked_parser.add_argument("--latest", action="store_true", help="Use the latest run.")
+    blocked_parser = subparsers.add_parser(
+        "blocked-pr",
+        help=bi("把失败 run 推成阻塞 PR", "push a failed run as a blocked PR"),
+        description=bi("把最近一次失败执行的结果推成 blocked PR。", "Push the latest failed execution as a blocked PR."),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    blocked_parser.add_argument("--repo", default=".", help=bi("目标仓库根目录", "target repository root"))
+    blocked_parser.add_argument("--run", help=bi("指定 run ID", "explicit run ID"))
+    blocked_parser.add_argument("--latest", action="store_true", help=bi("使用最新 run", "use the latest run"))
 
-    validate_parser = subparsers.add_parser("validate", help="Validate policy and task files.")
-    validate_parser.add_argument("--policy", required=True, help="Path to execution policy YAML.")
-    validate_parser.add_argument("--task", required=True, help="Path to task contract YAML.")
-    validate_parser.add_argument("--project", help="Optional path to project YAML.")
-    validate_parser.add_argument("--profile", help="Optional path to repository profile YAML.")
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help=bi("校验底层 YAML 配置", "validate low-level YAML configuration"),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    validate_parser.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
+    validate_parser.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
+    validate_parser.add_argument("--project", help=bi("项目配置 YAML 路径", "project YAML path"))
+    validate_parser.add_argument("--profile", help=bi("仓库配置 YAML 路径", "repository profile YAML path"))
 
-    simulate_parser = subparsers.add_parser("simulate", help="Simulate the next control-plane decision.")
-    simulate_parser.add_argument("--policy", required=True, help="Path to execution policy YAML.")
-    simulate_parser.add_argument("--task", required=True, help="Path to task contract YAML.")
-    simulate_parser.add_argument("--state", required=True, help="Path to runtime state YAML.")
+    simulate_parser = subparsers.add_parser(
+        "simulate",
+        help=bi("模拟底层控制面决策", "simulate low-level control-plane decisions"),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    simulate_parser.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
+    simulate_parser.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
+    simulate_parser.add_argument("--state", required=True, help=bi("运行态 YAML 路径", "runtime state YAML path"))
 
-    render_delivery = subparsers.add_parser("render-delivery", help="Render GitLab delivery command and API payload.")
-    render_delivery.add_argument("--project", required=True, help="Path to project YAML.")
-    render_delivery.add_argument("--source-branch", required=True, help="Source branch for the merge request.")
-    render_delivery.add_argument("--target-branch", help="Target branch. Defaults to project config.")
-    render_delivery.add_argument("--title", required=True, help="Merge request title.")
-    render_delivery.add_argument("--description", default="Automated delivery by Damon AutoCoding.", help="Merge request description.")
+    render_delivery = subparsers.add_parser(
+        "render-delivery",
+        help=bi("渲染 GitLab 交付命令", "render GitLab delivery command"),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    render_delivery.add_argument("--project", required=True, help=bi("项目配置 YAML 路径", "project YAML path"))
+    render_delivery.add_argument("--source-branch", required=True, help=bi("源分支", "source branch"))
+    render_delivery.add_argument("--target-branch", help=bi("目标分支，默认取 project 配置", "target branch; defaults to project config"))
+    render_delivery.add_argument("--title", required=True, help=bi("Merge Request 标题", "merge request title"))
+    render_delivery.add_argument(
+        "--description",
+        default="Automated delivery by Damon AutoCoding.",
+        help=bi("Merge Request 描述", "merge request description"),
+    )
 
-    run_worker = subparsers.add_parser("run-worker", help="Run a codex worker for a task contract.")
-    run_worker.add_argument("--policy", required=True, help="Path to execution policy YAML.")
-    run_worker.add_argument("--task", required=True, help="Path to task contract YAML.")
-    run_worker.add_argument("--workdir", required=True, help="Repository working directory.")
-    run_worker.add_argument("--output", help="Optional path for the final message output file.")
-    run_worker.add_argument("--timeout-seconds", type=int, help="Optional timeout override for codex exec.")
+    run_worker = subparsers.add_parser(
+        "run-worker",
+        help=bi("直接调用底层 Codex worker", "invoke the low-level Codex worker directly"),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    run_worker.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
+    run_worker.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
+    run_worker.add_argument("--workdir", required=True, help=bi("仓库工作目录", "repository working directory"))
+    run_worker.add_argument("--output", help=bi("最终消息输出文件", "output file for the final message"))
+    run_worker.add_argument("--timeout-seconds", type=int, help=bi("Codex 执行超时", "codex exec timeout"))
 
-    review_worker = subparsers.add_parser("review-worker", help="Run codex review on the current repository.")
-    review_worker.add_argument("--policy", required=True, help="Path to execution policy YAML.")
-    review_worker.add_argument("--workdir", required=True, help="Repository working directory.")
-    review_worker.add_argument("--base", required=True, help="Base branch for review.")
-    review_worker.add_argument("--timeout-seconds", type=int, help="Optional timeout override for codex review.")
+    review_worker = subparsers.add_parser(
+        "review-worker",
+        help=bi("直接运行底层 Codex review", "invoke low-level Codex review directly"),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    review_worker.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
+    review_worker.add_argument("--workdir", required=True, help=bi("仓库工作目录", "repository working directory"))
+    review_worker.add_argument("--base", required=True, help=bi("review 的基线分支", "base branch for review"))
+    review_worker.add_argument("--timeout-seconds", type=int, help=bi("Codex review 超时", "codex review timeout"))
 
-    run_task = subparsers.add_parser("run-task", help="Execute the main task orchestration flow.")
-    run_task.add_argument("--policy", required=True, help="Path to execution policy YAML.")
-    run_task.add_argument("--project", required=True, help="Path to project YAML.")
-    run_task.add_argument("--profile", required=True, help="Path to repository profile YAML.")
-    run_task.add_argument("--task", required=True, help="Path to task contract YAML.")
-    run_task.add_argument("--repo-root", default=".", help="Repository root to operate on.")
-    run_task.add_argument("--dry-run", action="store_true", help="Prepare worktree and run checks without invoking Codex or push.")
-    run_task.add_argument("--push", action="store_true", help="Push the task branch and create a merge request when the run succeeds.")
-    run_task.add_argument("--cleanup", action="store_true", help="Remove the worktree after the run finishes.")
-    run_task.add_argument("--reset-worktree", action="store_true", help="Replace an existing worktree at the task path.")
-    run_task.add_argument("--worker-timeout-seconds", type=int, help="Optional timeout override for codex exec.")
-    run_task.add_argument("--review-timeout-seconds", type=int, help="Optional timeout override for codex review.")
+    run_task = subparsers.add_parser(
+        "run-task",
+        help=bi("运行旧版底层任务流", "run the legacy low-level task flow"),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    run_task.add_argument("--policy", required=True, help=bi("执行策略 YAML 路径", "execution policy YAML path"))
+    run_task.add_argument("--project", required=True, help=bi("项目配置 YAML 路径", "project YAML path"))
+    run_task.add_argument("--profile", required=True, help=bi("仓库配置 YAML 路径", "repository profile YAML path"))
+    run_task.add_argument("--task", required=True, help=bi("任务契约 YAML 路径", "task contract YAML path"))
+    run_task.add_argument("--repo-root", default=".", help=bi("目标仓库根目录", "target repository root"))
+    run_task.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=bi("只跑 worktree 与验证，不调用 Codex、不推送", "prepare worktree and checks only; do not invoke Codex or push"),
+    )
+    run_task.add_argument("--push", action="store_true", help=bi("成功时推送分支并创建 MR", "push the branch and create an MR on success"))
+    run_task.add_argument("--cleanup", action="store_true", help=bi("结束后删除 worktree", "remove the worktree when finished"))
+    run_task.add_argument("--reset-worktree", action="store_true", help=bi("如果 worktree 已存在则重建", "replace the worktree if it already exists"))
+    run_task.add_argument("--worker-timeout-seconds", type=int, help=bi("Codex 执行超时", "codex exec timeout"))
+    run_task.add_argument("--review-timeout-seconds", type=int, help=bi("Codex review 超时", "codex review timeout"))
 
     return parser
 
@@ -98,6 +188,9 @@ def resolve_run_id(*, repo: str | Path, run: str | None, latest: bool) -> str:
 
 def main() -> int:
     parser = build_parser()
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return 0
     args = parser.parse_args()
 
     if args.command == "start":
