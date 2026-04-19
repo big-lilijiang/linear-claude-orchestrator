@@ -10,12 +10,12 @@ class GitLabDeliveryTests(unittest.TestCase):
             version="0.1",
             name="Damon AutoCoding",
             remote_name="origin",
-            remote_url="git@gitlab.kidinsight.cn:autocoding/test.git",
+            remote_url="git@gitlab.kidinsight.cn:autocoding/autoengine.git",
             default_target_branch="main",
             gitlab=GitLabProject(
                 api_base_url="https://gitlab.kidinsight.cn/api/v4",
                 web_base_url="https://gitlab.kidinsight.cn",
-                project_path="autocoding/test",
+                project_path="autocoding/autoengine",
             ),
             delivery=DeliveryOptions(
                 use_push_options=True,

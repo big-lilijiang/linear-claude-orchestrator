@@ -233,15 +233,12 @@ class CodexPlannerBackend:
             schema_path = temp_path / "schema.json"
             output_path = temp_path / "out.json"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
-
-            command = [
-                *self._base_command(repo_root=repo_root),
-                "--output-schema",
-                str(schema_path),
-                "-o",
-                str(output_path),
-                prompt,
-            ]
+            resumed = self.session_id is not None
+            command = [*self._base_command(repo_root=repo_root), "-o", str(output_path)]
+            if resumed:
+                command.append(self._json_only_prompt(prompt=prompt, schema=schema))
+            else:
+                command.extend(["--output-schema", str(schema_path), prompt])
             try:
                 completed = subprocess.run(
                     command,
@@ -264,7 +261,7 @@ class CodexPlannerBackend:
             self.session_id = self._extract_session_id(completed.stderr) or self.session_id
             if not output_path.exists():
                 raise RuntimeError("Codex planner did not produce structured output.")
-            return json.loads(output_path.read_text(encoding="utf-8"))
+            return parse_json_output(output_path.read_text(encoding="utf-8"))
 
     def _base_command(self, *, repo_root: str | Path) -> list[str]:
         if self.session_id:
@@ -286,6 +283,14 @@ class CodexPlannerBackend:
             "--sandbox",
             self.sandbox_mode,
         ]
+
+    def _json_only_prompt(self, *, prompt: str, schema: dict) -> str:
+        return (
+            f"{prompt}\n\n"
+            "Return ONLY a raw JSON object. Do not wrap it in markdown. "
+            "Do not include explanation before or after the JSON.\n"
+            f"JSON schema to satisfy exactly:\n{json.dumps(schema, ensure_ascii=False)}"
+        )
 
     def _extract_session_id(self, stderr: str) -> str | None:
         match = re.search(r"session id:\s*([0-9a-f-]+)", stderr, re.IGNORECASE)
@@ -434,3 +439,16 @@ def _coerce_stream(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
+
+
+def parse_json_output(text: str) -> dict:
+    stripped = text.strip()
+    if not stripped:
+        raise RuntimeError("Structured codex output was empty.")
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", stripped, re.DOTALL)
+        if not match:
+            raise RuntimeError(f"Could not parse JSON from codex output:\n{stripped}")
+        return json.loads(match.group(0))
