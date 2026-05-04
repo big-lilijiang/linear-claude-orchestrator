@@ -1,22 +1,13 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "damon-autocoding"
-version = "0.1.0"
-description = "Control plane skeleton for autonomous Codex-driven development."
+name = "linear-claude-orchestrator"
+version = "1.0.0"
+description = "Automatic Linear issue dispatcher for Claude Code"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-  "pydantic>=2.7,<3",
-  "prompt_toolkit>=3.0,<4",
-  "PyYAML>=6,<7",
-]
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Leon Li" }]
+urls = { Homepage = "https://github.com/big-lilijiang/linear-claude-orchestrator" }
 
-[project.scripts]
-damon-autocoding = "damon_autocoding.cli:main"
-damon = "damon_autocoding.cli:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

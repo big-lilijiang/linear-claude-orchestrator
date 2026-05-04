@@ -1,0 +1,21 @@
+name: cross-platform test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax check
+        run: python3 -c "import py_compile; py_compile.compile('dispatcher.py', doraise=True); py_compile.compile('post_result.py', doraise=True)"
+
+      - name: Dry run dispatcher
+        run: python3 dispatcher.py --dry-run
+
+      - name: Dry run post_result (help)
+        run: python3 post_result.py || true

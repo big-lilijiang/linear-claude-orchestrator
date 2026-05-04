@@ -1,8 +1,10 @@
 __pycache__/
 *.pyc
-.DS_Store
-.damon/
-.venv/
-dist/
-build/
+config.yaml
+.lco.pid
+.pytest_cache/
 *.egg-info/
+dist/
+.vscode/
+.idea/
+.DS_Store
