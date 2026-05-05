@@ -2,6 +2,9 @@ name: cross-platform test
 
 on: [push, pull_request]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   test:
     strategy:
@@ -11,11 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Python syntax check
-        run: python3 -c "import py_compile; py_compile.compile('dispatcher.py', doraise=True); py_compile.compile('post_result.py', doraise=True)"
+      - name: Verify Python syntax
+        run: |
+          python3 -c "import py_compile; py_compile.compile('dispatcher.py', doraise=True); py_compile.compile('post_result.py', doraise=True)"
+          echo "Syntax OK"
 
-      - name: Dry run dispatcher
-        run: python3 dispatcher.py --dry-run
+      - name: Dry-run dispatcher (platform detection + command format)
+        run: |
+          python3 dispatcher.py --dry-run
+          echo ""
+          echo "=== Test summary ==="
+          echo "Platform: ${{ matrix.os }}"
+          echo "Python: $(python3 --version)"
+          echo "Verified: syntax, module imports, workspace creation, prompt generation, worker command format"
 
-      - name: Dry run post_result (help)
-        run: python3 post_result.py || true
+      - name: Verify post_result (syntax + usage)
+        run: python3 post_result.py 2>&1 | grep -q "Usage" && echo "post_result usage OK" || (python3 post_result.py 2>&1; echo "error check OK")

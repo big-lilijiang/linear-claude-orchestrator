@@ -120,26 +120,37 @@ def main():
         sys.exit("LCO_LINEAR_PROJECT_SLUG not set")
 
     if dry_run:
-        print(f"[LCO] DRY RUN — platform: {sys.platform}")
-        # Simulate a fake issue to test the full pipeline
+        print(f"[LCO] DRY RUN")
+        print(f"[LCO]   platform: {sys.platform}")
+        print(f"[LCO]   python:   {sys.version.split()[0]}")
+
+        # 1. Workspace creation
         fake_issue = {"id": "00000000-0000-0000-0000-000000000000", "identifier": "TEST-1", "title": "Dry run test", "description": "test"}
         ws = workspace("TEST-1")
         (ws / "issue.json").write_text(json.dumps(fake_issue, ensure_ascii=False))
+        print(f"[LCO]   workspace create: OK ({ws})")
+
+        # 2. Prompt generation
         p = prompt(fake_issue)
+        print(f"[LCO]   prompt generation: OK ({len(p)} chars)")
+
+        # 3. Worker command construction
         worker_cmd = (
             f"cd {ws.as_posix()} && "
             f"claude --dangerously-skip-permissions --continue -p {shquote(p)} "
             f"> {ws.as_posix()}/output.txt 2>&1 ; "
             f"python3 {POST_RESULT} {shquote(fake_issue['id'])} {shquote(fake_issue['identifier'])}"
         )
+        print(f"[LCO]   worker command: OK ({len(worker_cmd)} chars)")
+
+        # 4. Platform-specific spawn method
         if sys.platform == "win32":
-            print(f"[LCO] Windows: cmd /c {worker_cmd[:80]}...")
-            print(f"[LCO] CREATE_NEW_PROCESS_GROUP: {hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP')}")
+            assert hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"), "missing CREATE_NEW_PROCESS_GROUP"
+            print(f"[LCO]   spawn method: cmd /c (CREATE_NEW_PROCESS_GROUP)")
         else:
-            print(f"[LCO] Unix: bash -c {worker_cmd[:80]}...")
-            print(f"[LCO] start_new_session supported")
-        print("[LCO] Dry run OK — all code paths valid")
-        return
+            print(f"[LCO]   spawn method: bash -c (start_new_session)")
+
+        print(f"[LCO] ALL CHECKS PASSED")
 
     try:
         active = count_in_progress()
