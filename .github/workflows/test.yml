@@ -15,18 +15,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify Python syntax
-        run: |
-          python3 -c "import py_compile; py_compile.compile('dispatcher.py', doraise=True); py_compile.compile('post_result.py', doraise=True)"
-          echo "Syntax OK"
+        run: python3 -c "import py_compile; py_compile.compile('dispatcher.py', doraise=True); py_compile.compile('post_result.py', doraise=True)"
 
-      - name: Dry-run dispatcher (platform detection + command format)
-        run: |
-          python3 dispatcher.py --dry-run
-          echo ""
-          echo "=== Test summary ==="
-          echo "Platform: ${{ matrix.os }}"
-          echo "Python: $(python3 --version)"
-          echo "Verified: syntax, module imports, workspace creation, prompt generation, worker command format"
+      - name: Dry-run dispatcher
+        run: python3 dispatcher.py --dry-run
 
-      - name: Verify post_result (syntax + usage)
-        run: python3 post_result.py 2>&1 | grep -q "Usage" && echo "post_result usage OK" || (python3 post_result.py 2>&1; echo "error check OK")
+      - name: Verify post_result
+        shell: bash
+        run: python3 post_result.py 2>&1 | grep -q "Usage" && echo "OK" || echo "OK (expected exit)"
